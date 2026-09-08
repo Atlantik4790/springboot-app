@@ -1,0 +1,75 @@
+# .github/workflows/deploy.yml
+name: CI/CD DevSecOps -> EC2
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scanning
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Dependency vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: SAST (CodeQL)
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript # adjust
+      - uses: github/codeql-action/analyze@v3
+
+  build:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          npm ci
+          npm run build
+      - name: Container scan
+        run: |
+          docker build -t app:${{ github.sha }} .
+          trivy image --severity HIGH,CRITICAL --exit-code 1 app:${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        run: |
+          rsync -avz -e "ssh -i ~/.ssh/deploy_key" dist/ \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/app/
+          ssh -i ~/.ssh/deploy_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "sudo systemctl restart app.service"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
