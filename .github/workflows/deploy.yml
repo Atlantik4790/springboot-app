@@ -106,15 +106,14 @@ jobs:
       - name: Resolve Maven dependencies
         run: mvn -B dependency:resolve
 
-      - name: Trivy Dependency Scan
+      - name: Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: fs
-          scan-ref: .
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: 0
-          ignore-unfixed: true
+          ignore-unfixed: false
 
 
   docker:
