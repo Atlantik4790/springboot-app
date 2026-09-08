@@ -106,11 +106,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trivy Filesystem Scan
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Resolve Maven dependencies
+        run: mvn -B dependency:resolve
+
+      - name: Trivy Dependency Scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: 1
 
